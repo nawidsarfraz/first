@@ -4,12 +4,17 @@ import socket
 import sys
 import argparse
 import os
+import io
+import zipfile
+import base64
 
 class EmulatorApp:
     def __init__(self, root, vfs_path, script_path):
         # Сохраняем параметры
         self.vfs_path = vfs_path
         self.script_path = script_path
+        self.vfs_data = None
+        self.vfs_zip = None
 
         # Получаем username и hostname
         username = getpass.getuser()
@@ -25,12 +30,25 @@ class EmulatorApp:
         self.entry.pack(padx=10, pady=5)
         self.entry.bind("<Return>", self.process_command)
 
-        self.write("Прототип эмулятора готов. Введите команду (ls, cd, conf-dump, exit).\n")
+        self.write("Прототип эмулятора готов. Введите команду (ls, cd, conf-dump, vfs-save, exit).\n")
 
         # Отладочный вывод параметров
         self.write("Отладочный вывод параметров:")
         self.write(f"  VFS path: {self.vfs_path}")
         self.write(f"  Script path: {self.script_path}\n")
+
+        # Загружаем VFS из zip
+        if self.vfs_path and os.path.isfile(self.vfs_path):
+            try:
+                with open(self.vfs_path, "rb") as f:
+                    self.vfs_data = f.read()
+                # Держим VFS в памяти (ZIP как байты)
+                self.vfs_zip = zipfile.ZipFile(io.BytesIO(self.vfs_data), "r")
+                self.write(f"VFS загружена: {self.vfs_path}, файлов: {len(self.vfs_zip.namelist())}")
+            except Exception as e:
+                self.write(f"Ошибка загрузки VFS: {e}")
+        else:
+            self.write("VFS не найдена или путь не указан.")
 
         # Если есть стартовый скрипт — выполняем
         if self.script_path and os.path.isfile(self.script_path):
@@ -61,13 +79,31 @@ class EmulatorApp:
 
         # Заглушки для команд
         if command == "ls":
-            self.write(f"Выполнена команда: ls, аргументы: {args}")
+            if self.vfs_zip:
+                self.write("Содержимое VFS:")
+                for name in self.vfs_zip.namelist():
+                    self.write(f"  {name}")
+            else:
+                self.write(f"Выполнена команда: ls, аргументы: {args}")
         elif command == "cd":
             self.write(f"Выполнена команда: cd, аргументы: {args}")
         elif command == "conf-dump":
             self.write("Конфигурация эмулятора:")
             self.write(f"  VFS path = {self.vfs_path}")
             self.write(f"  Script path = {self.script_path}")
+        elif command == "vfs-save":
+            if not args:
+                self.write("Ошибка: укажите путь для сохранения VFS (пример: vfs-save out.zip)")
+            elif self.vfs_data:
+                try:
+                    out_path = args[0]
+                    with open(out_path, "wb") as f:
+                        f.write(self.vfs_data)
+                    self.write(f"VFS успешно сохранена в: {out_path}")
+                except Exception as e:
+                    self.write(f"Ошибка сохранения VFS: {e}")
+            else:
+                self.write("Ошибка: VFS не загружена.")
         elif command == "exit":
             self.write("Выход из эмулятора...")
             sys.exit(0)
@@ -94,7 +130,7 @@ class EmulatorApp:
 if __name__ == "__main__":
     # Парсинг аргументов командной строки
     parser = argparse.ArgumentParser(description="Эмулятор файловой системы")
-    parser.add_argument("--vfs", required=True, help="Путь к физическому расположению VFS")
+    parser.add_argument("--vfs", required=True, help="Путь к физическому расположению VFS (zip-архив)")
     parser.add_argument("--script", required=False, help="Путь к стартовому скрипту")
     args = parser.parse_args()
 
